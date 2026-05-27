@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Semantic tokens (light) — paper aesthetic */
+    --background: 38 50% 98%;        /* #FDFBF7 paper */
+    --foreground: 0 0% 10%;          /* #1A1A1A ink */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+    --primary: 0 0% 10%;             /* ink — high-contrast CTAs */
+    --primary-foreground: 38 50% 98%;
+    --secondary: 38 30% 95%;
+    --secondary-foreground: 0 0% 10%;
+    --muted: 38 20% 94%;
+    --muted-foreground: 0 0% 42%;
+    --accent: 252 100% 86%;          /* lavender-300 */
+    --accent-foreground: 0 0% 10%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 38 50% 98%;
+    --border: 38 18% 89%;            /* line */
+    --input: 38 18% 89%;
+    --ring: 252 100% 76%;            /* lavender-400 */
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 0 0% 8%;
+    --foreground: 38 30% 95%;
+    --card: 0 0% 11%;
+    --card-foreground: 38 30% 95%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 38 30% 95%;
+    --primary: 38 30% 95%;
+    --primary-foreground: 0 0% 8%;
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 38 30% 95%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 65%;
+    --accent: 252 60% 30%;
+    --accent-foreground: 38 30% 95%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 38 30% 95%;
+    --border: 0 0% 22%;
+    --input: 0 0% 22%;
+    --ring: 252 100% 76%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  body { @apply bg-background text-foreground font-sans; }
+
+  ::selection { background: #C8B6FF; color: #1A1A1A; }
+
+  /* Editorial display headings — Instrument Serif sets the tone */
+  h1, h2, h3 { @apply font-serif font-normal tracking-tight; }
+  h1 { @apply text-display-xl; }
+  h2 { @apply text-display-lg; }
+  h3 { @apply text-display-md; }
+
+  /* Numbers in code/data want Space Mono */
+  .font-data { font-family: var(--font-space-mono), ui-monospace, monospace; }
+
+  /* Hairline separator — used throughout for editorial feel */
+  .hairline { @apply border-t border-line; }
+
+  /* Anti-AI-slop: no gradient-glow buttons by default. Use solid ink or transparent ghosts. */
+}
+
+@layer utilities {
+  /* Subtle paper grain texture — gives the cream background life without screaming */
+  .paper-grain {
+    background-image: radial-gradient(rgba(26, 26, 26, 0.025) 1px, transparent 1px);
+    background-size: 3px 3px;
+  }
+
+  /* Editorial container — narrower than default for prose */
+  .container-prose { @apply mx-auto max-w-3xl px-5 lg:px-0; }
+
+  /* Reveal on enter (data-state="visible") — used with motion */
+  .reveal { opacity: 0; transform: translateY(8px); }
+  .reveal[data-state="visible"] {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 600ms cubic-bezier(0.22, 1, 0.36, 1), transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
