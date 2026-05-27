@@ -1,0 +1,192 @@
+{
+  "name": "export-01-razorpay-webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "export-01-razorpay",
+        "options": {
+          "rawBody": true,
+          "responseMode": "responseNode"
+        }
+      },
+      "id": "webhook-razorpay",
+      "name": "Webhook · Razorpay",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "export-01-razorpay"
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Verify Razorpay HMAC signature\nconst crypto = require('crypto');\nconst secret = $env.RAZORPAY_WEBHOOK_SECRET;\nconst body = $input.first().binary?.data?.data?.toString() || JSON.stringify($input.first().json);\nconst signature = $input.first().json.headers?.['x-razorpay-signature'];\n\nif (!secret || !signature) {\n  return [{ json: { ok: false, error: 'Missing secret or signature' } }];\n}\n\nconst expected = crypto.createHmac('sha256', secret).update(body).digest('hex');\nconst valid = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));\n\nif (!valid) {\n  return [{ json: { ok: false, error: 'Invalid signature' } }];\n}\n\n// Parse body and pass through\nconst event = JSON.parse(body);\nreturn [{ json: { ok: true, event } }];"
+      },
+      "id": "verify-hmac",
+      "name": "Verify HMAC",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.event.event }}",
+                    "rightValue": "payment.captured",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "captured"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.event.event }}",
+                    "rightValue": "payment.failed",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "failed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-event",
+      "name": "Switch · Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CONVEX_DEPLOYMENT_URL }}/api/mutation",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "path", "value": "companies:upgradePlan" },
+            {
+              "name": "args",
+              "value": "={{ { companyId: $json.event.payload.payment.entity.notes.companyId, plan: 'operator', razorpayPaymentId: $json.event.payload.payment.entity.id } }}"
+            }
+          ]
+        },
+        "options": { "retry": { "tries": 3, "waitBetweenTries": 2000 } }
+      },
+      "id": "convex-upgrade",
+      "name": "Convex · Upgrade Plan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://wa.dotsai.cloud/api/send/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "to", "value": "={{ $json.event.payload.payment.entity.notes.phone }}" },
+            {
+              "name": "message",
+              "value": "Payment confirmed ✅\n\nYour Operator plan is live. Dashboard: https://export.dotsai.in/dashboard\n\nReply here anytime if anything breaks."
+            }
+          ]
+        }
+      },
+      "id": "whatsapp-confirm",
+      "name": "WhatsApp · Payment Confirm",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_WORK }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=💰 New paid signup\n• Company: {{ $('Verify HMAC').first().json.event.payload.payment.entity.notes.companyName }}\n• Amount: ₹{{ $('Verify HMAC').first().json.event.payload.payment.entity.amount / 100 }}\n• Plan: Operator"
+            }
+          ]
+        }
+      },
+      "id": "slack-paid",
+      "name": "Slack · #work New Paid",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://wa.dotsai.cloud/api/send/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "to", "value": "={{ $json.event.payload.payment.entity.notes.phone }}" },
+            {
+              "name": "message",
+              "value": "Hi 👋\n\nYour last payment didn't go through. Quick fix — retry here: https://export.dotsai.in/billing\n\nIf you'd like a different payment method, reply to this message."
+            }
+          ]
+        }
+      },
+      "id": "whatsapp-failed",
+      "name": "WhatsApp · Payment Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true }"
+      },
+      "id": "respond-ok",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    }
+  ],
+  "connections": {
+    "Webhook · Razorpay": { "main": [[{ "node": "Verify HMAC", "type": "main", "index": 0 }]] },
+    "Verify HMAC": { "main": [[{ "node": "Switch · Event Type", "type": "main", "index": 0 }]] },
+    "Switch · Event Type": {
+      "main": [
+        [{ "node": "Convex · Upgrade Plan", "type": "main", "index": 0 }],
+        [{ "node": "WhatsApp · Payment Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Convex · Upgrade Plan": { "main": [[{ "node": "WhatsApp · Payment Confirm", "type": "main", "index": 0 }]] },
+    "WhatsApp · Payment Confirm": { "main": [[{ "node": "Slack · #work New Paid", "type": "main", "index": 0 }]] },
+    "Slack · #work New Paid": { "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]] },
+    "WhatsApp · Payment Failed": { "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "export-dotsai-in" }, { "name": "razorpay" }, { "name": "billing" }]
+}

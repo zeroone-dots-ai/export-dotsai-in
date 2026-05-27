@@ -1,0 +1,166 @@
+{
+  "name": "export-02-clerk-signup-onboarding",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "export-02-clerk-signup",
+        "options": { "rawBody": true, "responseMode": "responseNode" }
+      },
+      "id": "webhook-clerk",
+      "name": "Webhook · Clerk",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "export-02-clerk-signup"
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Verify Clerk Svix signature\nconst crypto = require('crypto');\nconst secret = $env.CLERK_WEBHOOK_SECRET;\nconst raw = $input.first().binary?.data?.data?.toString() || JSON.stringify($input.first().json.body);\nconst headers = $input.first().json.headers || {};\nconst svixId = headers['svix-id'];\nconst svixTimestamp = headers['svix-timestamp'];\nconst svixSignatures = (headers['svix-signature'] || '').split(' ');\n\nif (!secret || !svixId || !svixTimestamp || !svixSignatures.length) {\n  return [{ json: { ok: false, error: 'Missing Svix headers' } }];\n}\n\n// Reject replays older than 5 min\nconst now = Math.floor(Date.now() / 1000);\nif (Math.abs(now - parseInt(svixTimestamp)) > 300) {\n  return [{ json: { ok: false, error: 'Timestamp too old' } }];\n}\n\nconst signedPayload = `${svixId}.${svixTimestamp}.${raw}`;\nconst secretBytes = Buffer.from(secret.split('_')[1], 'base64');\nconst expected = crypto.createHmac('sha256', secretBytes).update(signedPayload).digest('base64');\n\nconst valid = svixSignatures.some(sig => {\n  const [version, signature] = sig.split(',');\n  if (version !== 'v1') return false;\n  try {\n    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));\n  } catch { return false; }\n});\n\nif (!valid) {\n  return [{ json: { ok: false, error: 'Invalid signature' } }];\n}\n\nconst event = JSON.parse(raw);\nreturn [{ json: { ok: true, event } }];"
+      },
+      "id": "verify-svix",
+      "name": "Verify Svix",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.event.type }}",
+              "rightValue": "user.created",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-user-created",
+      "name": "If · user.created",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CONVEX_DEPLOYMENT_URL }}/api/mutation",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "path", "value": "users:createFromClerk" },
+            {
+              "name": "args",
+              "value": "={{ { clerkId: $json.event.data.id, email: $json.event.data.email_addresses[0].email_address, phone: $json.event.data.phone_numbers[0]?.phone_number, name: ($json.event.data.first_name + ' ' + ($json.event.data.last_name || '')).trim() } }}"
+            }
+          ]
+        },
+        "options": { "retry": { "tries": 3, "waitBetweenTries": 2000 } }
+      },
+      "id": "convex-create-user",
+      "name": "Convex · Create User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CONVEX_DEPLOYMENT_URL }}/api/mutation",
+        "sendBody": true,
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "path", "value": "companies:createEmptyForUser" },
+            { "name": "args", "value": "={{ { userId: $json.value } }}" }
+          ]
+        }
+      },
+      "id": "convex-create-company",
+      "name": "Convex · Create Empty Company",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://wa.dotsai.cloud/api/send/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "to",
+              "value": "={{ $('Verify Svix').first().json.event.data.phone_numbers[0]?.phone_number }}"
+            },
+            {
+              "name": "message",
+              "value": "=Hi {{ $('Verify Svix').first().json.event.data.first_name }} 👋\n\nWelcome to ZeroOne Export.\n\nStart here:\n📊 Dashboard: https://export.dotsai.in/dashboard\n💡 Free HS code calculator: https://export.dotsai.in/hs-code\n\nReply with any question — a real human reads every message."
+            }
+          ]
+        }
+      },
+      "id": "whatsapp-welcome",
+      "name": "WhatsApp · Welcome",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_WORK }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=👤 New signup\n• Name: {{ $('Verify Svix').first().json.event.data.first_name }} {{ $('Verify Svix').first().json.event.data.last_name }}\n• Email: {{ $('Verify Svix').first().json.event.data.email_addresses[0].email_address }}\n• Phone: {{ $('Verify Svix').first().json.event.data.phone_numbers[0]?.phone_number || 'not provided' }}"
+            }
+          ]
+        }
+      },
+      "id": "slack-new-signup",
+      "name": "Slack · #work New Signup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true }"
+      },
+      "id": "respond-ok",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 300]
+    }
+  ],
+  "connections": {
+    "Webhook · Clerk": { "main": [[{ "node": "Verify Svix", "type": "main", "index": 0 }]] },
+    "Verify Svix": { "main": [[{ "node": "If · user.created", "type": "main", "index": 0 }]] },
+    "If · user.created": {
+      "main": [
+        [{ "node": "Convex · Create User", "type": "main", "index": 0 }],
+        [{ "node": "Respond 200", "type": "main", "index": 0 }]
+      ]
+    },
+    "Convex · Create User": { "main": [[{ "node": "Convex · Create Empty Company", "type": "main", "index": 0 }]] },
+    "Convex · Create Empty Company": { "main": [[{ "node": "WhatsApp · Welcome", "type": "main", "index": 0 }]] },
+    "WhatsApp · Welcome": { "main": [[{ "node": "Slack · #work New Signup", "type": "main", "index": 0 }]] },
+    "Slack · #work New Signup": { "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "export-dotsai-in" }, { "name": "clerk" }, { "name": "onboarding" }]
+}
